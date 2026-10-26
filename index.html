@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5ef">
+  <title>Curio — one small lesson, every day</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#home" aria-label="Curio home"><span class="brand-mark">c</span><span>curio<span class="brand-dot">.</span></span></a>
+      <div class="nav-label">YOUR SPACE</div>
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-page="home"><span class="nav-icon">⌂</span>Home</button>
+        <button class="nav-item" data-page="explore"><span class="nav-icon">◉</span>Explore</button>
+        <button class="nav-item" data-page="progress"><span class="nav-icon">↗</span>My progress</button>
+      </nav>
+      <div class="sidebar-divider"></div>
+      <div class="nav-label subject-label">MY SUBJECTS <button class="tiny-plus" id="manageSubjects" aria-label="Manage subjects">+</button></div>
+      <div class="sidebar-subjects" id="sidebarSubjects"></div>
+      <div class="sidebar-spacer"></div>
+      <div class="daily-card"><div class="daily-card-icon">✳</div><div><strong>A little learning<br>goes a long way.</strong><span>Your daily dose is waiting.</span></div><button id="sidebarDaily" aria-label="Get today's lesson">↗</button></div>
+      <button class="profile-button" id="openProfile"><span class="avatar" id="avatarSmall">S</span><span class="profile-copy"><strong id="profileName">Sam Parker</strong><small>Curious learner</small></span><span class="more">···</span></button>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><button class="mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button><div class="breadcrumb">Monday, October 26 <span class="breadcrumb-dot">·</span> A fresh start</div><div class="top-actions"><div class="streak-pill"><span>♨</span><strong id="topStreak">0</strong><small>day streak</small></div><button class="icon-button" id="topProfile" aria-label="Open profile">⚙</button></div></header>
+      <div class="page-content" id="pageContent"></div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal-backdrop" id="modalBackdrop" hidden><section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button class="modal-close" id="modalClose" aria-label="Close dialog">×</button><div id="modalBody"></div></section></div>
+  <script src="app.js"></script>
+</body>
+</html>
