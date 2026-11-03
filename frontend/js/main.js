@@ -33,10 +33,10 @@ async function start(){
   try{state.subjects=(await api.subjects()).subjects;await refreshAccount();render();}
   catch(error){state.user=null;authError=error.message==='Sign in to continue.'?'':`Could not load Crumb data: ${error.message}`;render();}
 }
-async function openLesson(id){try{const back=state.route==='explore'?'explore':'home';state.lesson=(await api.lesson(id)).lesson;state.backRoute=back;state.route='lesson';state.selectedAnswer=null;render();}catch(error){showError(error);}}
+async function openLesson(id){try{const back=state.route==='explore'?'explore':'home';state.lesson=(await api.lesson(id)).lesson;state.backRoute=back;state.route='lesson';state.selectedAnswers={};render();}catch(error){showError(error);}}
 root.addEventListener('click',async event=>{
   const action=event.target.closest('[data-action]');const route=event.target.closest('[data-route]');
-  if(route){event.preventDefault();state.route=route.dataset.route;state.lesson=null;state.selectedAnswer=null;subjectFilter='';render();return;}
+  if(route){event.preventDefault();state.route=route.dataset.route;state.lesson=null;state.selectedAnswers={};subjectFilter='';render();return;}
   if(!action)return;
   const {action:kind,id}=action.dataset;
   try{
@@ -44,7 +44,12 @@ root.addEventListener('click',async event=>{
     if(kind==='open-lesson')await openLesson(id);
     if(kind==='filter-subject'){subjectFilter=id;searchQuery='';state.route='explore';render();}
     if(kind==='random'){const result=await api.randomLesson();if(!result.lesson){showToast('No lessons match your subjects yet.');return;}await openLesson(result.lesson.id);}
-    if(kind==='answer'){state.selectedAnswer=Number(action.dataset.answer);render();}
+    if(kind==='generate-random-topic'){
+      const label=action.textContent;action.disabled=true;action.textContent='Generating…';
+      try{const result=await api.generateRandom();state.lesson=result.lesson;state.route='lesson';state.backRoute='home';state.selectedAnswers={};await refreshAccount();render();}
+      finally{if(action.isConnected){action.disabled=false;action.textContent=label;}}
+    }
+    if(kind==='answer'){state.selectedAnswers={...state.selectedAnswers,[Number(action.dataset.questionIndex)]:Number(action.dataset.answer)};render();}
     if(kind==='complete'){await api.complete(id);state.progress=await api.progress();state.route='progress';state.lesson=null;render();showToast('Lesson saved.');}
     if(kind==='logout'){await api.logout();clearAccount();render();}
     if(kind==='clear-search'){searchQuery='';subjectFilter='';render();}
@@ -66,7 +71,7 @@ root.addEventListener('submit',async event=>{
     if(form.dataset.form==='search'){searchQuery=String(data.get('q')||'').trim();subjectFilter='';render();return;}
     if(form.dataset.form==='generate'){
       const button=form.querySelector('button[type="submit"]');button.disabled=true;button.textContent='Generating…';
-      const result=await api.generate(data.get('prompt'));state.lesson=result.lesson;state.route='lesson';state.backRoute='home';state.selectedAnswer=null;await refreshAccount();state.route='lesson';render();return;
+      const result=await api.generate(data.get('prompt'));state.lesson=result.lesson;state.route='lesson';state.backRoute='home';state.selectedAnswers={};await refreshAccount();state.route='lesson';render();return;
     }
   }catch(error){if(form.dataset.form==='auth'){authError=error.message;render();}else{if(form.dataset.form==='generate')render();showError(error);}}
 });

@@ -2,3 +2,4 @@ __pycache__/
 crumb.sqlite3
 crumb.sqlite3-shm
 crumb.sqlite3-wal
+/.env

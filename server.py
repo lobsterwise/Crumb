@@ -7,8 +7,10 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / '.env')
 WEB = ROOT / 'frontend'
 DB_PATH = Path(os.environ.get('CRUMB_DB', ROOT / 'crumb.sqlite3'))
 SUBJECTS = [
@@ -34,6 +36,13 @@ SUBJECTS = [
  {'id':'writing','name':'Writing','icon':'✍️','description':'Clearer writing'}]
 SUBJECT_MAP={x['id']:x for x in SUBJECTS}
 LEGACY={'science':'biology','nature':'environment','technology':'computer-science','space':'astronomy'}
+TOPIC_SEED_WORDS=('orbit','velvet','hinge','ripple','copper','echo','lantern','mosaic','drift','threshold','pocket','compass','ember','woven','mirror','tide','riddle','garden','signal','fracture','shelter','rhythm','lens','current','footprint','borrowed','quiet','unlikely','boundary','spark','pattern','detour','texture','balance','shadow','bridge','memory','scale','motion','unexpected','ordinary','distant','fragile','collective','hidden','shifting','curious','resilient')
+TOPIC_COUNT=10
+MIN_TOPIC_COUNT=3
+SEED_WORD_COUNT=4
+
+def random_seed_words():
+    return secrets.SystemRandom().sample(TOPIC_SEED_WORDS,SEED_WORD_COUNT)
 
 def connect():
     db=sqlite3.connect(DB_PATH,timeout=15)
@@ -221,31 +230,76 @@ class Handler(BaseHTTPRequestHandler):
             lesson=json.loads(row['content_json']);subject_id=row['subject_id'];title=lesson['title']
         db.execute('INSERT OR IGNORE INTO completions(user_id,lesson_id,title,subject_id,completed_at) VALUES (?,?,?,?,?)',(uid,lesson_id,title,subject_id,now_iso()))
         return self.send_json(201,{'ok':True,'lessonId':lesson_id})
+    def generate_gemini_json(self,api_key,model,prompt,temperature):
+        payload={'contents':[{'role':'user','parts':[{'text':prompt}]}],'generationConfig':{'responseMimeType':'application/json','temperature':temperature}}
+        request=Request('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',data=json.dumps(payload).encode(),headers={'x-goog-api-key':api_key,'Content-Type':'application/json'},method='POST')
+        with urlopen(request,timeout=45) as response:api_result=json.loads(response.read())
+        output=''.join(part.get('text','') for part in api_result['candidates'][0]['content']['parts'])
+        return json.loads(output)
     def generate_lesson(self,db,uid,data):
-        prompt=str(data.get('prompt','')).strip()[:240]
-        if len(prompt)<3:return self.send_json(400,{'error':'Enter a topic or question.'})
-        if not os.environ.get('OPENAI_API_KEY') or not os.environ.get('OPENAI_MODEL'):
-            return self.send_json(503,{'error':'Topic generation is not configured. Set OPENAI_API_KEY and OPENAI_MODEL on the server.'})
         interests=[r['subject_id'] for r in db.execute('SELECT subject_id FROM user_subjects WHERE user_id=?',(uid,))]
-        payload={'model':os.environ['OPENAI_MODEL'],'input':[{'role':'system','content':[{'type':'input_text','text':'Create one accurate, concise microlearning lesson. Return JSON with subject (one of the allowed ids), title, tag, minutes (integer 2-6), lead, body (90-150 words), takeaway, question, options (exactly 3 strings), answerIndex (0-2), and source. Use plain language. If unsure, state uncertainty in the body. Allowed subject ids: '+', '.join(SUBJECT_MAP)}]},{'role':'user','content':[{'type':'input_text','text':f'Learner interests: {interests}. Topic or question: {prompt}'}]}],'text':{'format':{'type':'json_object'}}}
-        request=Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['OPENAI_API_KEY'],'Content-Type':'application/json'},method='POST')
+        random_topic=bool(data.get('randomTopic'))
+        available=[subject for subject in interests if subject in SUBJECT_MAP] if random_topic else []
+        prompt=''
+        if random_topic and not available:return self.send_json(400,{'error':'Choose at least one subject before generating a random topic.'})
+        if not random_topic:
+            prompt=str(data.get('prompt','')).strip()[:240]
+            if len(prompt)<3:return self.send_json(400,{'error':'Enter a topic or question.'})
+        api_key=os.environ.get('GEMINI_API_KEY')
+        if not api_key:return self.send_json(503,{'error':'Topic generation is not configured. Set GEMINI_API_KEY on the server.'})
+        model=os.environ.get('GEMINI_MODEL') or 'gemini-3.5-flash-lite'
+        selected_subject=None
+        if random_topic:
+            selected_subject=secrets.choice(available)
+            seed_words=random_seed_words()
+            if len(seed_words)!=SEED_WORD_COUNT or len(set(seed_words))!=SEED_WORD_COUNT:return self.send_json(500,{'error':'Could not create random topic seeds.'})
+            topic_prompt=(f'Generate exactly {TOPIC_COUNT} distinct, accurate microlearning lesson topics for the subject {selected_subject} ({SUBJECT_MAP[selected_subject]["name"]}). '
+                f'Use these seed words as creative influences, in this exact order: {", ".join(seed_words)}. '
+                'Do not merely repeat the seed words. Make each topic specific, useful, and suitable for a 2-6 minute lesson. '
+                'Return only a JSON object with a "topics" array of concise topic strings, each 5-160 characters.')
+            try:topic_result=self.generate_gemini_json(api_key,model,topic_prompt,1.0)
+            except (HTTPError,URLError,TimeoutError) as error:
+                detail=getattr(error,'code',None)
+                return self.send_json(502,{'error':f'Topic service request failed{f" ({detail})" if detail else ""}.'})
+            except (ValueError,KeyError,IndexError,TypeError):return self.send_json(502,{'error':'Topic service returned an unreadable response.'})
+            if not isinstance(topic_result,dict) or not isinstance(topic_result.get('topics'),list):return self.send_json(502,{'error':'Topic service returned an invalid topic list.'})
+            topics=[];seen=set()
+            for candidate in topic_result['topics']:
+                if not isinstance(candidate,str):continue
+                topic=candidate.strip();normalized=topic.casefold()
+                if 5<=len(topic)<=160 and normalized not in seen:
+                    topics.append(topic);seen.add(normalized)
+                if len(topics)==TOPIC_COUNT:break
+            if len(topics)<MIN_TOPIC_COUNT:return self.send_json(502,{'error':'Topic service returned too few usable topics.'})
+            prompt=secrets.choice(topics)
+        subject_instruction=f'Use subject id "{selected_subject}".' if selected_subject else 'Choose the best matching subject id.'
+        instruction=('Create one accurate, substantial microlearning lesson for this topic: '+prompt+'\n'+subject_instruction+' Return only a JSON object with subject (allowed id), title, tag, minutes (integer 8-12), lead, sections (exactly 5 objects, each with a concise heading and a body of 90-140 words), takeaway, questions (exactly 4 objects, each with question, options (exactly 3 strings), answerIndex (0-2), and a brief explanation), and source. Build a clear progression across sections, explain important terms with examples, and use plain language. Make the questions test different points from the lesson. If unsure, state uncertainty in the relevant section. Allowed subject ids: '+', '.join(SUBJECT_MAP))
         try:
-            with urlopen(request,timeout=45) as response:api_result=json.loads(response.read())
-            output=api_result.get('output_text')
-            if not output:
-                output=''.join(part.get('text','') for item in api_result.get('output',[]) for part in item.get('content',[]) if part.get('type')=='output_text')
-            lesson=json.loads(output)
+            lesson=self.generate_gemini_json(api_key,model,instruction,0.8)
         except (HTTPError,URLError,TimeoutError) as error:
             detail=getattr(error,'code',None)
             return self.send_json(502,{'error':f'Lesson service request failed{f" ({detail})" if detail else ""}.'})
-        except (ValueError,KeyError,TypeError):return self.send_json(502,{'error':'Lesson service returned an unreadable response.'})
+        except (ValueError,KeyError,IndexError,TypeError):return self.send_json(502,{'error':'Lesson service returned an unreadable response.'})
+        if not isinstance(lesson,dict):return self.send_json(502,{'error':'Lesson service returned an invalid lesson.'})
         subject=lesson.get('subject')
-        required=('title','tag','lead','body','takeaway','question')
-        if subject not in SUBJECT_MAP or any(not isinstance(lesson.get(key),str) or not lesson[key].strip() for key in required) or not isinstance(lesson.get('options'),list) or len(lesson['options'])!=3 or not isinstance(lesson.get('answerIndex'),int) or lesson['answerIndex'] not in (0,1,2):return self.send_json(502,{'error':'Lesson service returned an invalid lesson.'})
-        try:minutes=int(lesson.get('minutes',4))
-        except (ValueError,TypeError):minutes=4
-        lesson.update(id='gen-'+secrets.token_hex(10),minutes=max(2,min(minutes,6)),source='Generated lesson')
-        lesson['options']=[str(x)[:240] for x in lesson['options']]
+        required=('title','tag','lead','takeaway')
+        sections=lesson.get('sections')
+        questions=lesson.get('questions')
+        if subject not in SUBJECT_MAP or (selected_subject and subject!=selected_subject) or any(not isinstance(lesson.get(key),str) or not lesson[key].strip() for key in required) or not isinstance(sections,list) or not 4<=len(sections)<=7 or not isinstance(questions,list) or not 3<=len(questions)<=5:return self.send_json(502,{'error':'Lesson service returned an invalid lesson.'})
+        section_words=0
+        for section in sections:
+            if not isinstance(section,dict) or not isinstance(section.get('heading'),str) or not section['heading'].strip() or not isinstance(section.get('body'),str) or not section['body'].strip():return self.send_json(502,{'error':'Lesson service returned invalid sections.'})
+            section_words+=len(section['body'].split())
+        if section_words<400:return self.send_json(502,{'error':'Lesson service returned a lesson that is too short.'})
+        for question in questions:
+            if not isinstance(question,dict) or not isinstance(question.get('question'),str) or not question['question'].strip() or not isinstance(question.get('options'),list) or len(question['options'])!=3 or any(not isinstance(option,str) or not option.strip() for option in question['options']) or not isinstance(question.get('answerIndex'),int) or question['answerIndex'] not in (0,1,2) or not isinstance(question.get('explanation'),str) or not question['explanation'].strip():return self.send_json(502,{'error':'Lesson service returned invalid questions.'})
+        try:minutes=int(lesson.get('minutes',8))
+        except (ValueError,TypeError):minutes=8
+        lesson.update(id='gen-'+secrets.token_hex(10),minutes=max(8,min(minutes,12)),source='Generated lesson')
+        lesson['body']=' '.join(section['body'].strip() for section in sections)
+        lesson['question']=questions[0]['question']
+        lesson['options']=[option[:240] for option in questions[0]['options']]
+        lesson['answerIndex']=questions[0]['answerIndex']
         db.execute('INSERT INTO user_custom_lessons(user_id,lesson_id,subject_id,content_json) VALUES (?,?,?,?)',(uid,lesson['id'],subject,json.dumps(lesson,ensure_ascii=False)))
         return self.send_json(201,{'lesson':lesson})
     def static_file(self,path):

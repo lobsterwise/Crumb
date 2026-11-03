@@ -16,6 +16,7 @@ export const api = {
   lesson: id => request(`/api/lessons/${encodeURIComponent(id)}`),
   randomLesson: () => request('/api/lessons/random'),
   generate: prompt => post('/api/lessons/generate', { prompt }),
+  generateRandom: () => post('/api/lessons/generate', { randomTopic: true }),
   progress: () => request('/api/progress'),
   me: () => request('/api/me'),
   preferences: () => request('/api/preferences'),

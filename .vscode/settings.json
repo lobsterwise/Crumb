@@ -1,0 +1,8 @@
+{
+	"chat.tools.terminal.autoApprove": {
+		"/^python -m unittest discover -s tests -v$/": {
+			"approve": true,
+			"matchCommandLine": true
+		}
+	}
+}

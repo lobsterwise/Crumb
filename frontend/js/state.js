@@ -6,7 +6,7 @@ export const state = {
   lessons: [],
   route: 'home',
   lesson: null,
-  selectedAnswer: null,
+  selectedAnswers: {},
 };
 export function clearAccount() {
   state.user = null;
@@ -14,5 +14,6 @@ export function clearAccount() {
   state.progress = null;
   state.lessons = [];
   state.lesson = null;
+  state.selectedAnswers = {};
   state.route = 'home';
 }
