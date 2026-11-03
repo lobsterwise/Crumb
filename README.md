@@ -1,38 +1,49 @@
-# Curio — Daily Microlearning
+# Crumb
 
-A responsive, Duolingo-inspired microlearning experience for exploring one small idea at a time across subjects like science, history, mathematics, nature, language, art, technology, psychology, and space.
+Crumb is a daily microlearning web app. Learners choose subjects, read short lessons, answer a recall question, and track completed lessons.
 
-## What works in this prototype
+## Run locally
 
-- Responsive dashboard and navigation for Home, Explore, progress, and subject preferences.
-- A curated starter shelf of short lessons with reading cards and multiple-choice recall questions.
-- Lesson recommendations based on selected interests, plus a random lesson picker.
-- A custom topic prompt that creates a bite-sized lesson card from a subject-specific template.
-- Completion history, lesson counts, and a simple streak display.
-- Account creation and sign-in with email and password, plus signed session cookies.
-- Profile settings for name, subject interests, and an optional reminder preference.
-- SQLite persistence for accounts, subject interests, lesson completions, generated lessons, and reminder settings.
-- Browser-local fallback using `localStorage` when the app is opened without its server.
-
-## Run it
-
-Python 3.10 or newer is required. The backend uses only Python's standard library and SQLite, so no package install is needed. Start the app from this directory:
+Requirements: Python 3.10 or newer.
 
 ```sh
 python server.py
 ```
 
-Then visit `http://127.0.0.1:8000`. The database file `curio.sqlite3` is created in the project folder on first launch. Set `CURIO_PORT` or `CURIO_DB` to use a different port or database path.
+Open `http://127.0.0.1:8000`. The app creates `crumb.sqlite3` on first launch. Set `CRUMB_DB` to select another database file, or set `CRUMB_PORT` to change the port.
 
-## Prototype boundaries
+## Features
 
-This is an early local MVP, not a production deployment. Accounts and learning data are stored in SQLite on the machine running the server. Passwords are hashed with PBKDF2, and sessions use HTTP-only cookies. There is no email verification, password reset, HTTPS configuration, multi-instance session storage, or deployment hardening yet. Topic prompts use local templates rather than an AI service or live content library. Reminder preferences are stored, but the app does not schedule delivery; reminders while the site is closed need a scheduler and notification service.
+- Account registration and sign-in with PBKDF2 password hashes and HTTP-only session cookies.
+- Twenty subjects returned by `/api/subjects` and persisted in SQLite.
+- Curated lesson records loaded from `data/lessons.json` into the `lessons` table, then delivered to the frontend through `/api/lessons`.
+- Per-user subject preferences, generated lessons, completed lesson history, and reminder preferences stored in SQLite.
+- Search and random lesson selection use database-backed API routes.
+- Topic generation calls the OpenAI Responses API from the server. Configure both environment variables before using it:
 
-## Next implementation steps
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODEL = "your-model"
+python server.py
+```
 
-1. Add email verification and account recovery.
-2. Add database migrations and stronger deployment security.
-3. Curate lesson content, including source and review metadata.
-4. Connect topic prompts to a controlled lesson-generation service or expand the reviewed library.
-5. Add server-scheduled, opt-in reminders and notification management.
-6. Add automated tests, accessibility review, and deployment configuration.
+The API key stays on the server. If these values are missing, lesson generation returns a setup error; it does not substitute a sample response.
+
+## Frontend structure
+
+`frontend/index.html` is a small document shell. Its JavaScript is divided into API and state modules, shared UI helpers, and page modules under `frontend/js/pages/`. The browser does not contain a sample account, lesson fixtures, or local-storage persistence.
+
+## API routes
+
+- `GET /api/subjects`
+- `GET /api/lessons?subject=biology&q=cell`
+- `GET /api/lessons/{id}`
+- `GET /api/lessons/random` (signed-in)
+- `POST /api/register`, `POST /api/login`, `POST /api/logout`
+- `GET /api/me`, `GET /api/preferences`, `PUT /api/preferences`
+- `GET /api/progress`, `POST /api/completions`
+- `POST /api/lessons/generate` (signed-in, OpenAI configuration required)
+
+## Current limits
+
+Reminder preferences are saved, but no reminder is delivered yet. Account recovery, email verification, HTTPS deployment, database migrations beyond the current compatibility step, and production hosting remain to be implemented. Generated lessons should be reviewed before relying on them as authoritative instruction.
