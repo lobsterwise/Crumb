@@ -1,4 +1,5 @@
 __pycache__/
-curio.sqlite3
-curio.sqlite3-shm
-curio.sqlite3-wal
+crumb.sqlite3
+crumb.sqlite3-shm
+crumb.sqlite3-wal
+/.env
