@@ -22,7 +22,7 @@ function render(){
   if(state.route==='subjects')content=subjectsPage(state);
   else if(state.route==='explore'){
     const library=state.lessons.filter(item=>(!searchQuery||item.title.toLowerCase().includes(searchQuery.toLowerCase())||item.body.toLowerCase().includes(searchQuery.toLowerCase()))&&(!subjectFilter||item.subject===subjectFilter));
-    content=explorePage(state,library,searchQuery);
+    content=explorePage(state,library,searchQuery,subjectFilter);
   } else if(state.route==='lesson'&&state.lesson)content=lessonPage(state,state.lesson);
   else if(state.route==='progress')content=progressPage(state,state.progress||{lessonsCompleted:0,streak:0,completedToday:0,completed:[]});
   else if(state.route==='profile')content=profilePage(state);
@@ -33,7 +33,7 @@ async function start(){
   try{state.subjects=(await api.subjects()).subjects;await refreshAccount();render();}
   catch(error){state.user=null;authError=error.message==='Sign in to continue.'?'':`Could not load Crumb data: ${error.message}`;render();}
 }
-async function openLesson(id){try{const back=state.route==='explore'?'explore':'home';state.lesson=(await api.lesson(id)).lesson;state.backRoute=back;state.route='lesson';state.selectedAnswers={};render();}catch(error){showError(error);}}
+async function openLesson(id){try{const back=state.route==='explore'?'explore':state.route==='progress'?'progress':'home';state.lesson=(await api.lesson(id)).lesson;state.backRoute=back;state.route='lesson';state.selectedAnswers={};render();}catch(error){showError(error);}}
 root.addEventListener('click',async event=>{
   const action=event.target.closest('[data-action]');const route=event.target.closest('[data-route]');
   if(route){event.preventDefault();state.route=route.dataset.route;state.lesson=null;state.selectedAnswers={};subjectFilter='';render();return;}
