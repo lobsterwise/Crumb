@@ -36,13 +36,17 @@ SUBJECTS = [
  {'id':'writing','name':'Writing','icon':'✍️','description':'Clearer writing'}]
 SUBJECT_MAP={x['id']:x for x in SUBJECTS}
 LEGACY={'science':'biology','nature':'environment','technology':'computer-science','space':'astronomy'}
-TOPIC_SEED_WORDS=('orbit','velvet','hinge','ripple','copper','echo','lantern','mosaic','drift','threshold','pocket','compass','ember','woven','mirror','tide','riddle','garden','signal','fracture','shelter','rhythm','lens','current','footprint','borrowed','quiet','unlikely','boundary','spark','pattern','detour','texture','balance','shadow','bridge','memory','scale','motion','unexpected','ordinary','distant','fragile','collective','hidden','shifting','curious','resilient')
+TOPIC_LENSES=(
+ {'label':'overlooked object history','guidance':'Trace how one ordinary object developed over time, including a specific design change, inventor, trade, or manufacturing shift.'},
+ {'label':'everyday manufacturing process','guidance':'Explain a concrete sequence of materials and manufacturing steps behind a familiar object.'},
+ {'label':'material or flavor origins','guidance':'Follow a specific compound from its natural or industrial source through extraction, processing, and use.'},
+ {'label':'hidden mechanism or failure mode','guidance':'Explain a non-obvious mechanism, constraint, failure, or workaround in a familiar system.'},
+ {'label':'interface dark pattern','guidance':'Analyze a specific interface tactic, how it steers user behavior, and the design choice that creates it.'},
+ {'label':'uncommon algorithm or data structure','guidance':'Explain a less commonly taught algorithm or data structure through its tradeoffs and a concrete use case.'},
+ {'label':'niche cross-disciplinary connection','guidance':'Connect two fields through one specific object, process, technique, or historical event.'},
+)
 TOPIC_COUNT=10
 MIN_TOPIC_COUNT=3
-SEED_WORD_COUNT=4
-
-def random_seed_words():
-    return secrets.SystemRandom().sample(TOPIC_SEED_WORDS,SEED_WORD_COUNT)
 
 def connect():
     db=sqlite3.connect(DB_PATH,timeout=15)
@@ -251,12 +255,13 @@ class Handler(BaseHTTPRequestHandler):
         selected_subject=None
         if random_topic:
             selected_subject=secrets.choice(available)
-            seed_words=random_seed_words()
-            if len(seed_words)!=SEED_WORD_COUNT or len(set(seed_words))!=SEED_WORD_COUNT:return self.send_json(500,{'error':'Could not create random topic seeds.'})
+            lens=secrets.choice(TOPIC_LENSES)
             topic_prompt=(f'Generate exactly {TOPIC_COUNT} distinct, accurate microlearning lesson topics for the subject {selected_subject} ({SUBJECT_MAP[selected_subject]["name"]}). '
-                f'Use these seed words as creative influences, in this exact order: {", ".join(seed_words)}. '
-                'Do not merely repeat the seed words. Make each topic specific, useful, and suitable for a 2-6 minute lesson. '
-                'Return only a JSON object with a "topics" array of concise topic strings, each 5-160 characters.')
+                f'Topic lens: {lens["label"]}. {lens["guidance"]} '
+                'Aim for unusually specific, niche micro-lessons rather than entry-level or commonly repeated topics. Avoid broad introductions, textbook overviews, and generic "what is X" questions. '
+                'Use these as specificity calibration only; do not copy or closely paraphrase them: the history of the shoelace; how a pencil eraser is made step by step; dark patterns in UI; where common flavor compounds come from; rope data structures. '
+                'Each candidate should name a particular object, process, mechanism, compound, interface tactic, algorithm, or historical detail, and should be accurate and researchable rather than obscure by invention. '
+                'Return only a JSON object with a "topics" array of objects, each containing topic (5-160 characters), lens (short label), and rationale (one concise sentence explaining its specificity).')
             try:topic_result=self.generate_gemini_json(api_key,model,topic_prompt,1.0)
             except (HTTPError,URLError,TimeoutError) as error:
                 detail=getattr(error,'code',None)
@@ -265,8 +270,10 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(topic_result,dict) or not isinstance(topic_result.get('topics'),list):return self.send_json(502,{'error':'Topic service returned an invalid topic list.'})
             topics=[];seen=set()
             for candidate in topic_result['topics']:
-                if not isinstance(candidate,str):continue
-                topic=candidate.strip();normalized=topic.casefold()
+                if not isinstance(candidate,dict):continue
+                topic=candidate.get('topic');label=candidate.get('lens');rationale=candidate.get('rationale')
+                if not isinstance(topic,str) or not isinstance(label,str) or not label.strip() or not isinstance(rationale,str) or not rationale.strip():continue
+                topic=topic.strip();normalized=topic.casefold()
                 if 5<=len(topic)<=160 and normalized not in seen:
                     topics.append(topic);seen.add(normalized)
                 if len(topics)==TOPIC_COUNT:break

@@ -66,13 +66,16 @@ class GenerationTests(unittest.TestCase):
     def setUp(self):
         self.handler = object.__new__(TestHandler)
 
-    def test_random_generation_uses_gemini_topics_and_ordered_seed_words(self):
+    def test_random_generation_uses_niche_lens_and_selects_gemini_topic(self):
         db = FakeDatabase(['biology', 'chemistry'])
-        topic_list = {'topics':['Topic about cells','Topic about ecosystems','Topic about energy']}
-        seed_words = ['ember','compass','velvet','orbit']
+        lens = server.TOPIC_LENSES[0]
+        topic_list = {'topics':[
+            {'topic':'A history of the pencil ferrule','lens':lens['label'],'rationale':'It traces a specific manufacturing feature.'},
+            {'topic':'Why pencil ferrules use ridges','lens':lens['label'],'rationale':'It focuses on a narrow design detail.'},
+            {'topic':'How eraser sleeves changed pencil design','lens':lens['label'],'rationale':'It follows a particular object modification.'},
+        ]}
         with patch.dict(os.environ, {'GEMINI_API_KEY':'test-key'}, clear=True), \
-             patch.object(server.secrets, 'choice', side_effect=['biology','Topic about ecosystems']), \
-             patch.object(server, 'random_seed_words', return_value=seed_words), \
+             patch.object(server.secrets, 'choice', side_effect=['biology',lens,'Why pencil ferrules use ridges']), \
              patch.object(TestHandler, 'generate_gemini_json', side_effect=[topic_list,valid_lesson()]) as generate:
             status, response = self.handler.generate_lesson(db, 3, {'randomTopic':True})
 
@@ -84,9 +87,11 @@ class GenerationTests(unittest.TestCase):
         topic_prompt = generate.call_args_list[0].args[2]
         lesson_prompt = generate.call_args_list[1].args[2]
         self.assertIn('biology (Biology)', topic_prompt)
-        self.assertIn('ember, compass, velvet, orbit', topic_prompt)
-        self.assertLess(topic_prompt.index('ember'), topic_prompt.index('orbit'))
-        self.assertIn('Topic about ecosystems', lesson_prompt)
+        self.assertIn(lens['label'], topic_prompt)
+        self.assertIn('Aim for unusually specific, niche micro-lessons', topic_prompt)
+        self.assertIn('the history of the shoelace', topic_prompt)
+        self.assertIn('do not copy or closely paraphrase', topic_prompt)
+        self.assertIn('Why pencil ferrules use ridges', lesson_prompt)
         self.assertIn('Use subject id "biology"', lesson_prompt)
         self.assertEqual(len(db.lessons), 1)
         lesson=response['lesson']
@@ -98,9 +103,13 @@ class GenerationTests(unittest.TestCase):
     def test_random_generation_rejects_too_few_usable_topics(self):
         db = FakeDatabase(['biology'])
         with patch.dict(os.environ, {'GEMINI_API_KEY':'test-key'}), \
-             patch.object(server.secrets, 'choice', return_value='biology'), \
-             patch.object(server, 'random_seed_words', return_value=['ember','compass','velvet','orbit']), \
-             patch.object(TestHandler, 'generate_gemini_json', return_value={'topics':['Only one topic','only one topic',None,'']}) as generate:
+             patch.object(server.secrets, 'choice', side_effect=['biology',server.TOPIC_LENSES[0]]), \
+             patch.object(TestHandler, 'generate_gemini_json', return_value={'topics':[
+                 {'topic':'Only one topic','lens':'History','rationale':'Specific.'},
+                 {'topic':'only one topic','lens':'History','rationale':'Duplicate.'},
+                 {'topic':'Missing rationale','lens':'History'},
+                 None,
+             ]}) as generate:
             status, response = self.handler.generate_lesson(db, 3, {'randomTopic':True})
 
         self.assertEqual(status, 502)
@@ -111,8 +120,7 @@ class GenerationTests(unittest.TestCase):
     def test_topic_provider_failure_does_not_persist_a_lesson(self):
         db = FakeDatabase(['biology'])
         with patch.dict(os.environ, {'GEMINI_API_KEY':'test-key'}), \
-             patch.object(server.secrets, 'choice', return_value='biology'), \
-             patch.object(server, 'random_seed_words', return_value=['ember','compass','velvet','orbit']), \
+               patch.object(server.secrets, 'choice', side_effect=['biology',server.TOPIC_LENSES[0]]), \
              patch.object(TestHandler, 'generate_gemini_json', side_effect=URLError('offline')):
             status, response = self.handler.generate_lesson(db, 3, {'randomTopic':True})
 
@@ -123,8 +131,7 @@ class GenerationTests(unittest.TestCase):
     def test_topic_service_without_candidates_returns_controlled_error(self):
         db = FakeDatabase(['biology'])
         with patch.dict(os.environ, {'GEMINI_API_KEY':'test-key'}), \
-             patch.object(server.secrets, 'choice', return_value='biology'), \
-             patch.object(server, 'random_seed_words', return_value=['ember','compass','velvet','orbit']), \
+               patch.object(server.secrets, 'choice', side_effect=['biology',server.TOPIC_LENSES[0]]), \
              patch.object(TestHandler, 'generate_gemini_json', side_effect=IndexError):
             status, response = self.handler.generate_lesson(db, 3, {'randomTopic':True})
 
